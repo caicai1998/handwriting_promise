@@ -132,8 +132,75 @@ class IPromise {
         })
     );
   }
+}
 
-  // TODO: resolvePromise
+/**
+ * Promise 解析过程
+ * 这是 Promise/A+ 规范中最复杂的部分，用于处理 then 方法返回值的各种情况
+ *
+ * @param {IPromise} promise2 - then 方法返回的新 Promise
+ * @param {*} x - then 回调函数的返回值
+ * @param {Function} resolve - promise2 的 resolve 方法
+ * @param {Function} reject - promise2 的 reject 方法
+ */
+function resolvePromise(promise2, x, resolve, reject) {
+  // 如果 promise2 和 x 指向同一对象，以 TypeError 为据因拒绝执行 promise2
+  // 这是为了避免循环引用
+  if (promise2 === x) {
+    return reject(new TypeError("Chaining cycle detected for promise"));
+  }
+
+  // 如果 x 为 Promise 实例，则使 promise2 接受 x 的状态
+  if (x instanceof IPromise) {
+    return x.then(
+      // 如果 x 最终成功，递归解析成功的值
+      (y) => resolvePromise(promise2, y, resolve, reject),
+      // 如果 x 最终失败，直接 reject
+      reject
+    );
+  }
+
+  // 如果 x 为对象或函数（可能是 thenable 对象）
+  if (x !== null && (typeof x === "object" || typeof x === "function")) {
+    let called = false; // 确保只调用一次，防止重复调用
+
+    try {
+      // 把 x.then 赋值给 then
+      const then = x.then;
+
+      // 如果 then 是函数，将 x 作为函数的作用域 this 调用
+      if (typeof then === "function") {
+        then.call(
+          x,
+          // 如果 resolvePromise 以值 y 为参数被调用，则运行 resolvePromise
+          (y) => {
+            if (called) return; // 如果已经调用过，则忽略
+            called = true;
+            // 递归解析，因为 y 可能还是 thenable
+            resolvePromise(promise2, y, resolve, reject);
+          },
+          // 如果 rejectPromise 以据因 r 为参数被调用，则以据因 r 拒绝 promise2
+          (r) => {
+            if (called) return; // 如果已经调用过，则忽略
+            called = true;
+            reject(r);
+          }
+        );
+      } else {
+        // 如果 then 不是函数，以 x 为参数执行 promise2
+        resolve(x);
+      }
+    } catch (error) {
+      // 如果取 x.then 的值时抛出错误 e，则以 e 为据因拒绝 promise2
+      // 如果调用 then 方法抛出了异常 e
+      if (called) return; // 如果已经调用过，则忽略
+      called = true;
+      reject(error);
+    }
+  } else {
+    // 如果 x 不为对象或者函数，以 x 为参数执行 promise2
+    resolve(x);
+  }
 }
 
 export default IPromise;
